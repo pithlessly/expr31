@@ -51,19 +51,24 @@ const Vec = std.ArrayList(SearchSpace);
 
 fn search(n: SearchSpace, frontier: *Vec, reached: *IntSet) void {
     // multiplications
-    comptime var rhs = 2;
-    inline while (rhs <= 9) : (rhs += 1)
-        if (std.math.cast(SearchSpace, std.math.mulWide(u32, n, rhs))) |prod| {
-            if (!reached.add(prod))
-                frontier.append(prod) catch unreachable;
-        } else |_| {};
+    {
+        var product: u32 = n;
+        var rhs: usize = 2;
+        while (rhs <= 9) : (rhs += 1) {
+            product += n;
+            if (std.math.cast(SearchSpace, product)) |prod| {
+                if (!reached.add(prod))
+                    frontier.append(prod) catch unreachable;
+            } else |_| break;
+        }
+    }
     // divisions
+    const ns = @splat(8, @as(u64, n));
     const factors = Vector(8, u64){
         1,          0xaaaaaaab, 1, 0xcccccccd,
         0xaaaaaaab, 0x92492493, 1, 0x38e38e39,
     };
     const shifts = Vector(8, u6){ 1, 33, 2, 34, 34, 34, 3, 33 };
-    const ns = @splat(8, @as(u64, n));
     const quotients = (ns * factors) >> shifts;
     for (@as([8]u64, quotients)) |quotient| {
         const quot = @intCast(u31, quotient);
