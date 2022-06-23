@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Vector = std.meta.Vector;
 
 fn FlatIntSet(comptime n_bits_: comptime_int) type {
     return struct {
@@ -46,6 +47,31 @@ comptime {
     std.debug.assert(SearchSpace == IntSet.Int);
 }
 
+const Vec = std.ArrayList(SearchSpace);
+
+fn search(n: SearchSpace, frontier: *Vec, reached: *IntSet) void {
+    // multiplications
+    comptime var rhs = 2;
+    inline while (rhs <= 9) : (rhs += 1)
+        if (std.math.cast(SearchSpace, std.math.mulWide(u32, n, rhs))) |prod| {
+            if (!reached.add(prod))
+                frontier.append(prod) catch unreachable;
+        } else |_| {};
+    // divisions
+    const factors = Vector(8, u64){
+        1,          0xaaaaaaab, 1, 0xcccccccd,
+        0xaaaaaaab, 0x92492493, 1, 0x38e38e39,
+    };
+    const shifts = Vector(8, u6){ 1, 33, 2, 34, 34, 34, 3, 33 };
+    const ns = @splat(8, @as(u64, n));
+    const quotients = (ns * factors) >> shifts;
+    for (@as([8]u64, quotients)) |quotient| {
+        const quot = @intCast(u31, quotient);
+        if (!reached.add(quot))
+            frontier.append(quot) catch unreachable;
+    }
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -54,12 +80,10 @@ pub fn main() !void {
     var reached = try IntSet.init(alloc);
     defer reached.deinit(alloc);
 
-    const Vec = std.ArrayListUnmanaged(SearchSpace);
-
     var frontier = try Vec.initCapacity(alloc, 1000);
-    defer frontier.deinit(alloc);
+    defer frontier.deinit();
     var next_frontier = try Vec.initCapacity(alloc, 1000);
-    defer next_frontier.deinit(alloc);
+    defer next_frontier.deinit();
 
     frontier.appendSliceAssumeCapacity(&[_]SearchSpace{ 1, 2, 3, 4, 5, 6, 7, 8, 9 });
 
@@ -67,22 +91,8 @@ pub fn main() !void {
 
     var iters: u32 = 0;
     while (frontier.items.len > 0) : (iters += 1) {
-        for (frontier.items) |n| {
-            // multiplications
-            comptime var rhs: u8 = 2;
-            inline while (rhs <= 9) : (rhs += 1)
-                if (std.math.cast(SearchSpace, std.math.mulWide(u32, n, rhs))) |prod| {
-                    if (!reached.add(prod))
-                        next_frontier.append(alloc, prod) catch unreachable;
-                } else |_| {};
-            // divisions
-            rhs = 2;
-            inline while (rhs <= 9) : (rhs += 1) {
-                const quot = n / rhs;
-                if (!reached.add(quot))
-                    next_frontier.append(alloc, quot) catch unreachable;
-            }
-        }
+        for (frontier.items) |n|
+            search(n, &next_frontier, reached);
         frontier.clearRetainingCapacity();
         std.mem.swap(Vec, &frontier, &next_frontier);
         std.debug.print("finished iteration #{} ({d:.3}s): {} total, {} new\n", .{
